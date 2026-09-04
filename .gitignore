@@ -1,0 +1,13 @@
+# Local runtime output (never commit these)
+*.log
+logs/
+state.json
+config.json
+
+# Editors / OS
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.swp

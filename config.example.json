@@ -1,0 +1,31 @@
+{
+  "PollSeconds": 2,
+  "StartDebounceSeconds": 2,
+  "StopDebounceSeconds": 5,
+
+  "WatchedApps": [
+    "slack\\.exe$",
+    "chrome\\.exe$",
+    "msedge\\.exe$",
+    "Teams\\.exe$",
+    "ms-teams\\.exe$",
+    "^MSTeams",
+    "^MicrosoftTeams",
+    "zoom\\.exe$"
+  ],
+
+  "EnableWindowTitleFallback": true,
+  "WindowTitlePatterns": [
+    "is sharing your screen",
+    "Stop sharing",
+    "Screen sharing toolbar",
+    "You're presenting",
+    "You are presenting"
+  ],
+
+  "OnShareStart": "",
+  "OnShareStop": "",
+
+  "LogLevel": "INFO",
+  "MaxLogSizeKB": 512
+}
