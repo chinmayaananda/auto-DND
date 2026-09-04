@@ -46,6 +46,15 @@ jobs:
           Write-Host "Notifications enabled on runner: $enabled"
           if (-not (Test-AppIsWatched -Identity 'C:\x\slack.exe' -Patterns @('slack\.exe$'))) { throw 'Watch matching broken.' }
           if (Test-AppIsWatched -Identity 'C:\x\obs.exe' -Patterns @('slack\.exe$')) { throw 'Watch matching too permissive.' }
+
+          $nonPackaged = ConvertFrom-ConsentStoreKeyName -KeyName 'C:#Program Files#Google#Chrome#Application#chrome.exe' -NonPackaged
+          if ($nonPackaged.Name -ne 'chrome.exe') { throw "Non-packaged name parse broken: $($nonPackaged.Name)" }
+          if ($nonPackaged.Identity -ne 'C:\Program Files\Google\Chrome\Application\chrome.exe') { throw 'Non-packaged path parse broken.' }
+
+          $packaged = ConvertFrom-ConsentStoreKeyName -KeyName 'MSTeams_8wekyb3d8bbwe'
+          if ($packaged.Name -ne 'MSTeams') { throw "Packaged name parse broken: $($packaged.Name)" }
+          if ($packaged.Kind -ne 'Packaged') { throw 'Packaged kind parse broken.' }
+
           Write-Host 'Smoke test passed.'
 
       - name: Detection dry run

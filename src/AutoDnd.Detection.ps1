@@ -79,7 +79,11 @@ function ConvertFrom-ConsentStoreKeyName {
         $path = $KeyName -replace '#', '\'
         return [pscustomobject]@{
             Identity = $path
-            Name     = [System.IO.Path]::GetFileName($path)
+            # Split manually rather than using [System.IO.Path]::GetFileName: that
+            # method follows the *host* platform's separator, so it returns the
+            # whole path unchanged anywhere other than Windows, which quietly
+            # breaks cross-platform parsing and any test run off-Windows.
+            Name     = ($path -split '\\')[-1]
             Kind     = 'NonPackaged'
         }
     }
