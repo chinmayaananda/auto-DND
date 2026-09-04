@@ -37,6 +37,13 @@ $script:Root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'AutoDnd.Detection.ps1')
 . (Join-Path $PSScriptRoot 'AutoDnd.Dnd.ps1')
 
+# The watcher functions below need these switches. Promote them into script scope
+# explicitly rather than relying on PowerShell's dynamic scoping to find the param
+# block from inside a function: that works, but it is invisible to a reader and to
+# static analysis, and it breaks the moment a function is moved into a module.
+$script:NoAct       = [bool]$NoAct
+$script:Interactive = [bool]$Once
+
 $script:DataDir   = Join-Path $env:LOCALAPPDATA 'AutoDnd'
 $script:LogPath   = Join-Path $script:DataDir 'autodnd.log'
 $script:StatePath = Join-Path $script:DataDir 'state.json'
@@ -48,7 +55,7 @@ if (-not (Test-Path -LiteralPath $script:DataDir)) {
     New-Item -ItemType Directory -Path $script:DataDir -Force | Out-Null
 }
 
-function Write-Log {
+function Write-AutoDndLog {
     param(
         [ValidateSet('DEBUG', 'INFO', 'WARN', 'ERROR')][string]$Level = 'INFO',
         [Parameter(Mandatory)][string]$Message
@@ -70,10 +77,10 @@ function Write-Log {
     }
 
     Write-Verbose $line
-    if ($Once -or $VerbosePreference -eq 'Continue') { Write-Host $line }
+    if ($script:Interactive -or $VerbosePreference -eq 'Continue') { Write-Host $line }
 }
 
-$script:Logger = { param($lvl, $msg) Write-Log -Level $lvl -Message $msg }
+$script:Logger = { param($lvl, $msg) Write-AutoDndLog -Level $lvl -Message $msg }
 
 function Get-Config {
     param([string]$Path)
@@ -85,7 +92,7 @@ function Get-Config {
 
     foreach ($candidate in $candidates) {
         if (Test-Path -LiteralPath $candidate) {
-            Write-Log -Level DEBUG -Message "Using config: $candidate"
+            Write-AutoDndLog -Level DEBUG -Message "Using config: $candidate"
             return (Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json)
         }
     }
@@ -100,7 +107,7 @@ function Get-State {
         return (Get-Content -LiteralPath $script:StatePath -Raw | ConvertFrom-Json)
     }
     catch {
-        Write-Log -Level WARN -Message "State file unreadable, resetting: $($_.Exception.Message)"
+        Write-AutoDndLog -Level WARN -Message "State file unreadable, resetting: $($_.Exception.Message)"
         return [pscustomobject]@{ SuppressedByUs = $false; SuppressedSince = $null }
     }
 }
@@ -126,8 +133,8 @@ function Restore-StrandedSuppression {
     #>
     $state = Get-State
     if ($state.SuppressedByUs) {
-        Write-Log -Level WARN -Message 'Found a suppression left over from a previous run; restoring notifications.'
-        if (-not $NoAct) { Set-NotificationsEnabled -Enabled $true }
+        Write-AutoDndLog -Level WARN -Message 'Found a suppression left over from a previous run; restoring notifications.'
+        if (-not $script:NoAct) { Set-NotificationsEnabled -Enabled $true }
         Set-State -SuppressedByUs $false
     }
 }
@@ -142,13 +149,13 @@ function Start-Suppression {
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Detections, [Parameter(Mandatory)]$Config)
 
     if (-not (Get-NotificationsEnabled)) {
-        Write-Log -Level INFO -Message 'Screen share started, but notifications were already off. Leaving your setting alone.'
+        Write-AutoDndLog -Level INFO -Message 'Screen share started, but notifications were already off. Leaving your setting alone.'
         Set-State -SuppressedByUs $false
         return $false
     }
 
-    Write-Log -Level INFO -Message "Screen share started: $(Format-DetectionList -Detections $Detections). Suppressing notifications."
-    if (-not $NoAct) {
+    Write-AutoDndLog -Level INFO -Message "Screen share started: $(Format-DetectionList -Detections $Detections). Suppressing notifications."
+    if (-not $script:NoAct) {
         Set-NotificationsEnabled -Enabled $false
         Set-State -SuppressedByUs $true
         Invoke-ConfiguredHook -Command $Config.OnShareStart -Logger $script:Logger
@@ -161,12 +168,12 @@ function Stop-Suppression {
 
     $state = Get-State
     if (-not $state.SuppressedByUs) {
-        Write-Log -Level INFO -Message 'Screen share ended. Notifications were not suppressed by us, so nothing to restore.'
+        Write-AutoDndLog -Level INFO -Message 'Screen share ended. Notifications were not suppressed by us, so nothing to restore.'
         return
     }
 
-    Write-Log -Level INFO -Message 'Screen share ended. Restoring notifications.'
-    if (-not $NoAct) {
+    Write-AutoDndLog -Level INFO -Message 'Screen share ended. Restoring notifications.'
+    if (-not $script:NoAct) {
         Set-NotificationsEnabled -Enabled $true
         Set-State -SuppressedByUs $false
         Invoke-ConfiguredHook -Command $Config.OnShareStop -Logger $script:Logger
@@ -180,7 +187,7 @@ function Invoke-Watcher {
     $pendingState = $null
     $pendingSince = $null
 
-    Write-Log -Level INFO -Message "auto-DND watcher started (poll $($Config.PollSeconds)s, NoAct=$([bool]$NoAct))."
+    Write-AutoDndLog -Level INFO -Message "auto-DND watcher started (poll $($Config.PollSeconds)s, NoAct=$($script:NoAct))."
 
     while ($true) {
         try {
@@ -193,7 +200,7 @@ function Invoke-Watcher {
                 if ($pendingState -ne $observed) {
                     $pendingState = $observed
                     $pendingSince = Get-Date
-                    Write-Log -Level DEBUG -Message "Pending transition to sharing=$observed."
+                    Write-AutoDndLog -Level DEBUG -Message "Pending transition to sharing=$observed."
                 }
                 else {
                     $needed = if ($observed) { $Config.StartDebounceSeconds } else { $Config.StopDebounceSeconds }
@@ -216,7 +223,7 @@ function Invoke-Watcher {
             }
         }
         catch {
-            Write-Log -Level ERROR -Message "Poll failed: $($_.Exception.Message)"
+            Write-AutoDndLog -Level ERROR -Message "Poll failed: $($_.Exception.Message)"
         }
 
         Start-Sleep -Seconds $Config.PollSeconds
@@ -231,8 +238,8 @@ if ($config.PSObject.Properties.Name -contains 'MaxLogSizeKB') { $script:MaxLogK
 
 if ($Once) {
     $detections = @(Get-ActiveScreenShare -Config $config)
-    Write-Log -Level INFO -Message "Detected: $(Format-DetectionList -Detections $detections)"
-    Write-Log -Level INFO -Message "Notifications currently enabled: $(Get-NotificationsEnabled)"
+    Write-AutoDndLog -Level INFO -Message "Detected: $(Format-DetectionList -Detections $detections)"
+    Write-AutoDndLog -Level INFO -Message "Notifications currently enabled: $(Get-NotificationsEnabled)"
     return
 }
 
